@@ -1,9 +1,12 @@
 #include <M5Stack.h>
 #include <ESP_MultiWiFi.h>
-#include <SD.h>
+#include <SdFat.h>
 #include <ArduinoJson.h>
 
 #define ROCKYOU_PATH "/rockyou.txt"
+
+SdFat SD;
+File file;
 
 struct NetworkInfo {
   String ssid;
@@ -351,28 +354,54 @@ void sendDeauthPackets(int count) {
   }
 }
 
+void setupFirmware() {
+  // Initialize display
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+  
+  // Display initial message
+  M5.Lcd.clear();
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.println("Initializing firmware...");
+  
+  // Set Wi-Fi mode
+  WiFi.mode(WIFI_STA);
+  
+  // Start Wi-Fi in AP mode for potential configuration
+  WiFi.softAP("MrCrackBot", "password123");
+  
+  // Display IP address for AP mode
+  IPAddress myIP = WiFi.softAPIP();
+  M5.Lcd.printf("AP IP address: %s\n", myIP.toString().c_str());
+  
+  // Set hostname
+  WiFi.setHostname("MrCrackBot");
+  
+  // Initialize SD card
+  if (!SD.begin()) {
+    M5.Lcd.println("SD Card initialization failed.");
+  } else {
+    M5.Lcd.println("SD Card initialized.");
+  }
+  
+  // Load networks from SD card
+  loadNetworksFromSD();
+  
+  // Display menu
+  displayMenu();
+  
+  // Set initial state
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.setTextColor(TFT_GREEN, TFT_BLACK);
+  M5.Lcd.println("Firmware setup complete.");
+}
+
 void setup() {
   M5.begin();
   Serial.begin(115200);
   ESP_MultiWiFi.init();
-  WiFi.mode(WIFI_STA);
-
-  M5.Lcd.clear();
-  M5.Lcd.setTextSize(3);
-  M5.Lcd.setCursor(0, 0);
-  M5.Lcd.println("Mr. CrackBot");
-  M5.Lcd.println("by @$K");
-  delay(3000);
-
-  if (!SD.begin()) {
-    Serial.println("SD Card Mount Failed");
-    M5.Lcd.println("SD Card Mount Failed");
-    return;
-  }
-
-  loadNetworksFromSD();
+  
   setupFirmware();
-  displayMenu();
 }
 
 void loop() {
