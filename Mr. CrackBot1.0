@@ -1,8 +1,8 @@
-##include <M5Stack.h>
+#include <M5Stack.h>
 #include <WiFi.h>
 #include <SD.h>
 #include <ArduinoJson.h>
-#include <WiFiManagerTZ.h>
+#include <WiFiManager.h>
 
 #define ROCKYOU_PATH "/rockyou.txt"
 #define SETTINGS_PATH "/settings.json"
@@ -24,7 +24,7 @@ uint8_t deauthPacket[26] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-WiFiManagerTZ wifiManager;
+WiFiManager wifiManager;
 
 void crackNetworkPassword();
 void deauthNetwork();
@@ -251,7 +251,7 @@ void setupFirmware() {
   // Set Wi-Fi pins for M5Stack
   WiFi.setPins(8, 7, 4, 2);
 
-  // Use WiFiManagerTZ to manage WiFi connections
+  // Use WiFiManager to manage WiFi connections
   wifiManager.autoConnect("AutoConnectAP");
 
     // Display IP address
